@@ -38,3 +38,56 @@ describe('cursor constraints', function()
     assert.is_nil(calc(bufnr, nil, 'editable', stale))
   end)
 end)
+
+describe('cursor restoration', function()
+  after_each(function()
+    test_util.reset_editor()
+  end)
+
+  it('overrides BufWinEnter cursor restoration when opening parent', function()
+    local oil = require('oil')
+    local test_adapter = require('oil.adapters.test')
+    require('oil.config').view_options.show_hidden = true
+
+    test_adapter.test_set('/projects/foo/bar.txt', 'file')
+    test_adapter.test_set('/docs/readme.md', 'file')
+
+    -- Simulate a cursor-restoring plugin
+    local au_id = vim.api.nvim_create_autocmd({ 'BufWinLeave', 'BufWinEnter' }, {
+      pattern = '*',
+      callback = function(args)
+        local bufnr = vim.api.nvim_get_current_buf()
+        if vim.bo[bufnr].filetype == 'oil' then
+          if args.event == 'BufWinLeave' then
+            vim.b[bufnr].oil_conflict_cursor = vim.api.nvim_win_get_cursor(0)
+          else
+            local remembered = vim.b[bufnr].oil_conflict_cursor
+            if remembered then
+              vim.api.nvim_win_set_cursor(0, remembered)
+            end
+          end
+        end
+      end,
+    })
+
+    test_util.actions.open({ 'oil-test:///' })
+    test_util.actions.focus('docs/')
+    assert.equals('docs', oil.get_cursor_entry().name)
+
+    vim.cmd.edit({ args = { 'oil-test:///projects/' } })
+    test_util.wait_oil_ready()
+    assert.equals('oil-test:///projects/', vim.api.nvim_buf_get_name(0))
+
+    oil.open()
+    test_util.wait_oil_ready()
+    -- The scheduled cursor enforcement runs after BufWinEnter autocmds
+    assert.is_true(vim.wait(1000, function()
+      local entry = oil.get_cursor_entry()
+      return entry and entry.name == 'projects'
+    end, 10))
+    assert.equals('oil-test:///', vim.api.nvim_buf_get_name(0))
+    assert.equals('projects', oil.get_cursor_entry().name)
+
+    vim.api.nvim_del_autocmd(au_id)
+  end)
+end)

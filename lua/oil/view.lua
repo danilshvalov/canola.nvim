@@ -39,14 +39,11 @@ M.set_last_cursor = function(bufname, name)
   last_cursor_entry[bufname] = name
 end
 
----Set the cursor to the last_cursor_entry if one exists
-M.maybe_set_cursor = function()
+---Set the cursor to a specific entry name in the current oil buffer
+---@param entry_name string
+---@return boolean found
+M.set_cursor_to_entry = function(entry_name)
   local oil = require('oil')
-  local bufname = vim.api.nvim_buf_get_name(0)
-  local entry_name = last_cursor_entry[bufname]
-  if not entry_name then
-    return
-  end
   local line_count = vim.api.nvim_buf_line_count(0)
   for lnum = 1, line_count do
     local entry = oil.get_entry_on_line(0, lnum)
@@ -55,9 +52,21 @@ M.maybe_set_cursor = function()
       local id_str = line:match('^/(%d+)')
       local col = line:find(entry_name, 1, true) or (id_str:len() + 1)
       vim.api.nvim_win_set_cursor(0, { lnum, col - 1 })
-      M.set_last_cursor(bufname, nil)
-      break
+      return true
     end
+  end
+  return false
+end
+
+---Set the cursor to the last_cursor_entry if one exists
+M.maybe_set_cursor = function()
+  local bufname = vim.api.nvim_buf_get_name(0)
+  local entry_name = last_cursor_entry[bufname]
+  if not entry_name then
+    return
+  end
+  if M.set_cursor_to_entry(entry_name) then
+    M.set_last_cursor(bufname, nil)
   end
 end
 

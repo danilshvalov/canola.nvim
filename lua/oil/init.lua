@@ -504,6 +504,19 @@ M.open = function(dir, opts, cb)
 
   -- If preview window exists, update its content
   update_preview_window()
+
+  -- Some plugins restore cursor position on BufWinEnter and override oil's
+  -- cursor positioning. Enforce the cursor after all autocmds have run.
+  if basename then
+    local target_basename = basename
+    util.run_after_load(0, function()
+      vim.schedule(function()
+        if vim.api.nvim_buf_get_name(0) == parent_url then
+          view.set_cursor_to_entry(target_basename)
+        end
+      end)
+    end)
+  end
 end
 
 ---@class oil.CloseOpts
@@ -881,6 +894,17 @@ M.select = function(opts, callback)
       -- If you enter the new /foo, it will show the contents of the old /foo.
       if not entry.id and cache.list_url(bufname)[entry.name] then
         return cb('Please save changes before entering new directory')
+      end
+      -- Remember which directory we're entering so that returning to the parent
+      -- puts the cursor back on this entry.
+      local view = require('oil.view')
+      if entry.id == 0 then
+        local parent_url, basename = M.get_buffer_parent_url(bufname, true)
+        if basename then
+          view.set_last_cursor(parent_url, basename)
+        end
+      else
+        view.set_last_cursor(bufname, entry.name)
       end
     else
       local is_float = util.is_floating_win()

@@ -52,6 +52,47 @@ describe('oil select', function()
     assert.not_equals(winid, vim.api.nvim_get_current_win())
   end)
 
+  it('remembers the directory entered when selecting a subdirectory', function()
+    local test_adapter = require('oil.adapters.test')
+    require('oil.config').view_options.show_hidden = true
+    test_adapter.test_set('/projects/foo/bar.txt', 'file')
+
+    test_util.actions.open({ 'oil-test:///' })
+    test_util.actions.focus('projects/')
+    test_util.await(oil.select, 2)
+    assert.equals('oil-test:///projects/', vim.api.nvim_buf_get_name(0))
+
+    -- Go back up via actions.parent
+    oil.open()
+    test_util.wait_oil_ready()
+    assert.equals('oil-test:///', vim.api.nvim_buf_get_name(0))
+    assert.equals('projects', oil.get_cursor_entry().name)
+  end)
+
+  it('restores cursor to the directory we came from when selecting ..', function()
+    local test_adapter = require('oil.adapters.test')
+    require('oil.config').view_options.show_hidden = true
+    test_adapter.test_set('/projects/foo/bar.txt', 'file')
+    test_adapter.test_set('/docs/readme.md', 'file')
+
+    -- Open root and put cursor on docs (do not enter)
+    test_util.actions.open({ 'oil-test:///' })
+    test_util.actions.focus('docs/')
+    assert.equals('docs', oil.get_cursor_entry().name)
+
+    -- Directly open projects/ without changing root's remembered cursor
+    vim.cmd.edit({ args = { 'oil-test:///projects/' } })
+    test_util.wait_oil_ready()
+    assert.equals('oil-test:///projects/', vim.api.nvim_buf_get_name(0))
+
+    -- Select .. to go back to root
+    test_util.actions.focus('../')
+    test_util.await(oil.select, 2)
+
+    assert.equals('oil-test:///', vim.api.nvim_buf_get_name(0))
+    assert.equals('projects', oil.get_cursor_entry().name)
+  end)
+
   describe('close after open', function()
     it('same window', function()
       vim.cmd.edit({ args = { 'foo' } })
