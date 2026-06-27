@@ -16,6 +16,60 @@ local FIELD_META = constants.FIELD_META
 
 -- map of path->last entry under cursor
 local last_cursor_entry = {}
+-- map of path->persisted entry under cursor across sessions
+local persisted_cursor_entry = {}
+-- lazily computed path to persist cursor positions
+local persist_cursor_path
+
+---@return string
+local function get_persist_cursor_path()
+  if not persist_cursor_path then
+    persist_cursor_path = vim.fs.joinpath(vim.fn.stdpath('data'), 'oil_cursor.json')
+  end
+  return persist_cursor_path
+end
+
+---Load persisted cursor positions from disk.
+M.load_persisted_cursor = function()
+  if not config.persist_cursor then
+    return
+  end
+  local path = get_persist_cursor_path()
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok or not lines or #lines == 0 then
+    return
+  end
+  ok, persisted_cursor_entry = pcall(vim.json.decode, table.concat(lines, '\n'))
+  if not ok or type(persisted_cursor_entry) ~= 'table' then
+    persisted_cursor_entry = {}
+  end
+end
+
+---Save persisted cursor positions to disk.
+M.save_persisted_cursor = function()
+  if not config.persist_cursor then
+    return
+  end
+  local oil = require('oil')
+  -- Make sure we save the latest cursor position for every loaded oil buffer,
+  -- even if CursorMoved hasn't fired yet.
+  for _, bufnr in ipairs(M.get_all_buffers()) do
+    local bufname = vim.api.nvim_buf_get_name(bufnr)
+    vim.api.nvim_buf_call(bufnr, function()
+      local entry = oil.get_cursor_entry()
+      if entry then
+        persisted_cursor_entry[bufname] = entry.name
+      end
+    end)
+  end
+  local path = get_persist_cursor_path()
+  local ok, encoded = pcall(vim.json.encode, persisted_cursor_entry)
+  if not ok then
+    return
+  end
+  vim.fn.mkdir(vim.fs.dirname(path), 'p')
+  pcall(vim.fn.writefile, { encoded }, path)
+end
 
 ---@param bufnr integer
 ---@param entry oil.InternalEntry
@@ -37,6 +91,9 @@ end
 ---@param name nil|string
 M.set_last_cursor = function(bufname, name)
   last_cursor_entry[bufname] = name
+  if name and config.persist_cursor then
+    persisted_cursor_entry[bufname] = name
+  end
 end
 
 ---Set the cursor to a specific entry name in the current oil buffer
@@ -61,7 +118,7 @@ end
 ---Set the cursor to the last_cursor_entry if one exists
 M.maybe_set_cursor = function()
   local bufname = vim.api.nvim_buf_get_name(0)
-  local entry_name = last_cursor_entry[bufname]
+  local entry_name = last_cursor_entry[bufname] or persisted_cursor_entry[bufname]
   if not entry_name then
     return
   end
@@ -74,6 +131,20 @@ end
 ---@return nil|string
 M.get_last_cursor = function(bufname)
   return last_cursor_entry[bufname]
+end
+
+---@param bufname string
+---@return nil|string
+M.get_persisted_cursor = function(bufname)
+  return persisted_cursor_entry[bufname]
+end
+
+---@param bufname string
+---@param name nil|string
+M.set_persisted_cursor = function(bufname, name)
+  if config.persist_cursor then
+    persisted_cursor_entry[bufname] = name
+  end
 end
 
 local function are_any_modified()
@@ -704,6 +775,14 @@ M.initialize = function(bufnr)
 
       constrain_cursor(bufnr, config.constrain_cursor)
 
+      if config.persist_cursor then
+        local bufname = vim.api.nvim_buf_get_name(bufnr)
+        local entry = oil.get_cursor_entry()
+        if entry then
+          persisted_cursor_entry[bufname] = entry.name
+        end
+      end
+
       if config.preview_win.update_on_cursor_moved then
         -- Debounce and update the preview window
         if timer then
@@ -930,7 +1009,7 @@ local function render_buffer(bufnr, opts)
     jump_idx = 1
   end
   local seek_after_render_found = false
-  local seek_after_render = M.get_last_cursor(bufname)
+  local seek_after_render = M.get_last_cursor(bufname) or M.get_persisted_cursor(bufname)
   local column_defs = columns.get_supported_columns(scheme)
   local line_table = {}
   local col_width = {}

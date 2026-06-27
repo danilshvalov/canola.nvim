@@ -1331,8 +1331,10 @@ local _on_key_ns = 0
 M.setup = function(opts)
   local Ringbuf = require('oil.ringbuf')
   local config = require('oil.config')
+  local view = require('oil.view')
 
   config.setup(opts)
+  view.load_persisted_cursor()
   set_colors()
   local callback = function(args)
     local util = require('oil.util')
@@ -1440,6 +1442,14 @@ M.setup = function(opts)
     group = aug,
     pattern = '*',
     callback = set_colors,
+  })
+  vim.api.nvim_create_autocmd('VimLeave', {
+    desc = 'Save oil cursor positions',
+    group = aug,
+    pattern = '*',
+    callback = function()
+      view.save_persisted_cursor()
+    end,
   })
   vim.api.nvim_create_autocmd('BufReadCmd', {
     group = aug,

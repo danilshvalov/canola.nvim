@@ -90,4 +90,30 @@ describe('cursor restoration', function()
 
     vim.api.nvim_del_autocmd(au_id)
   end)
+
+  it('persists cursor position across sessions', function()
+    local oil = require('oil')
+    local test_adapter = require('oil.adapters.test')
+    local view = require('oil.view')
+    require('oil.config').view_options.show_hidden = true
+
+    test_adapter.test_set('/projects/foo/bar.txt', 'file')
+    test_adapter.test_set('/docs/readme.md', 'file')
+
+    test_util.actions.open({ 'oil-test:///' })
+    test_util.actions.focus('docs/')
+    assert.equals('docs', oil.get_cursor_entry().name)
+
+    view.save_persisted_cursor()
+
+    -- Simulate a restart: reset_editor clears in-memory state but keeps the
+    -- persisted file on disk. setup() reloads it automatically.
+    test_util.reset_editor()
+    test_adapter.test_set('/projects/foo/bar.txt', 'file')
+    test_adapter.test_set('/docs/readme.md', 'file')
+
+    test_util.actions.open({ 'oil-test:///' })
+    test_util.wait_oil_ready()
+    assert.equals('docs', oil.get_cursor_entry().name)
+  end)
 end)
